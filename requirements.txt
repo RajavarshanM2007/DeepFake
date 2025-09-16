@@ -2,12 +2,7 @@ streamlit
 numpy
 opencv-python-headless
 torch
-torchvision
 imageio
 requests
 streamlit-lottie
-torch-scatter
-torch-sparse
-torch-cluster
-torch-spline-conv
-torch-geometric
+Pillow
