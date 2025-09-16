@@ -1,0 +1,8 @@
+streamlit
+numpy
+opencv-python-headless
+torch
+torchvision
+imageio
+requests
+streamlit-lottie
