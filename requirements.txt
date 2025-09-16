@@ -6,3 +6,8 @@ torchvision
 imageio
 requests
 streamlit-lottie
+torch-scatter
+torch-sparse
+torch-cluster
+torch-spline-conv
+torch-geometric
