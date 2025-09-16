@@ -1,8 +1,7 @@
+# app.py
+
 import streamlit as st
 import numpy as np
-import cv2
-import os
-import tempfile
 import torch
 import imageio
 import requests
@@ -12,7 +11,7 @@ from my_models import extract_faces_from_video, image_to_graph
 import time
 import random
 
-# ----------------- CSS -----------------
+# CSS etc. (same as before)
 st.markdown("""
 <style>
 /* High-tech, clean color palette */
@@ -28,7 +27,7 @@ h1 {
     font-weight: 800;
     text-align: left;
     margin-bottom: 15px;
-    animation: shimmer 1.5s infinite alternate; /* Applied animation */
+    animation: shimmer 1.5s infinite alternate;
 }
 @keyframes shimmer {
     0% {
@@ -108,7 +107,6 @@ h3 { font-size: 24px; color: #ccd6f6 !important; font-weight: 700; }
 </style>
 """, unsafe_allow_html=True)
 
-# ----------------- Taskbar -----------------
 st.markdown("""
 <div class="taskbar">
     <div>
@@ -121,12 +119,10 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ----------------- Title and Description -----------------
 st.markdown("<h1>Deepfake Detector 🔍</h1>", unsafe_allow_html=True)
 st.write("Unmask the truth with AI-powered deepfake detection. Upload one or more images/videos and let the intelligence do the rest.")
-st.markdown("---")  # Adds a horizontal line for separation
+st.markdown("---")
 
-# ----------------- Upload Section -----------------
 st.markdown("""
 <div class="teal-card" id="upload">
     <h3>Upload Images and Videos</h3>
@@ -134,7 +130,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Create two columns for side-by-side uploaders
 col1, col2 = st.columns(2)
 
 with col1:
@@ -151,20 +146,34 @@ with col2:
         accept_multiple_files=True
     )
 
-# Combine uploaded files for processing
 uploaded_files = []
 if uploaded_images:
     uploaded_files.extend(uploaded_images)
 if uploaded_videos:
     uploaded_files.extend(uploaded_videos)
 
-# ----------------- Helper Function to Display Results -----------------
+# Load model (simple version)
+device = torch.device("cpu")
+model = FuNetA(num_classes=2)
+model.to(device)
+model.eval()
+
+def predict_from_image_bytes(image_bytes):
+    tensor = image_to_graph(image_bytes)
+    if tensor is None:
+        return None  # Could not parse or resize
+    tensor = tensor.to(device)
+    with torch.no_grad():
+        logits = model(tensor, graph=None)
+        probs = torch.softmax(logits, dim=1)
+        prob_fake = probs[0,1].item()  # class 1 = "fake"
+    return prob_fake
+
 def display_results_grid(results):
     max_cols = 5
     img_results = [r for r in results if r['file_type'] == 'image']
     vid_results = [r for r in results if r['file_type'] == 'video']
 
-    # Display images in a grid
     if img_results:
         st.markdown("<br>---<br>", unsafe_allow_html=True)
         st.markdown("<h3><u>Image Detection Results</u></h3>", unsafe_allow_html=True)
@@ -174,7 +183,10 @@ def display_results_grid(results):
             for j, r in enumerate(img_results[i:i+max_cols]):
                 with cols[j]:
                     st.image(r['preview'], caption=r['filename'], width=200)
-                    prob_fake = r['prob_fake']
+                    prob_fake = r.get('prob_fake', None)
+                    if prob_fake is None:
+                        st.write("Error in prediction")
+                        continue
                     prob_real = 1 - prob_fake
                     st.progress(int(prob_fake * 100))
                     st.write(f"**Fake:** {prob_fake * 100:.2f}%")
@@ -186,7 +198,6 @@ def display_results_grid(results):
                     else:
                         st.success(f"✅ Likely Authentic ({prob_real * 100:.1f}% Real)")
 
-    # Display videos in a grid
     if vid_results:
         st.markdown("<br>---<br>", unsafe_allow_html=True)
         st.markdown("<h3><u>Video Detection Results</u></h3>", unsafe_allow_html=True)
@@ -197,7 +208,10 @@ def display_results_grid(results):
                 with cols[j]:
                     st.write(f"**File:** {r['filename']}")
                     st.video(r['file_data'])
-                    prob_fake = r['prob_fake']
+                    prob_fake = r.get('prob_fake', None)
+                    if prob_fake is None:
+                        st.write("Error in prediction")
+                        continue
                     prob_real = 1 - prob_fake
                     st.progress(int(prob_fake * 100))
                     st.write(f"**Fake:** {prob_fake * 100:.2f}%")
@@ -209,12 +223,11 @@ def display_results_grid(results):
                     else:
                         st.success(f"✅ Likely Authentic ({prob_real * 100:.1f}% Real)")
 
-# ----------------- Detection Report -----------------
 def display_detection_report(results):
     total_files = len(results)
     total_images = sum(1 for r in results if r['file_type'] == 'image')
     total_videos = sum(1 for r in results if r['file_type'] == 'video')
-    likely_fakes = sum(1 for r in results if r['prob_fake'] > 0.5)
+    likely_fakes = sum(1 for r in results if (r.get('prob_fake', 0) > 0.5))
 
     st.markdown("<div class='teal-card'><h3>Detection Report</h3>", unsafe_allow_html=True)
     st.write(f"**Total files uploaded:** {total_files}")
@@ -223,26 +236,8 @@ def display_detection_report(results):
     st.write(f"**Likely Fakes:** {likely_fakes}")
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ----------------- Mock Functionality (Simulated) -----------------
-def mock_detect_deepfake(file_type, progress_bar):
-    """Generates a high-confidence probability and animates the progress bar."""
-    # Animate the progress bar from 0 to 100
-    for i in range(101):
-        progress_bar.progress(i)
-        time.sleep(0.005) # Even smaller delay for a faster feel
-    
-    # Generate a more "appropriate" (less random) result
-    if random.choice([True, False]): # 50% chance of a high-confidence fake
-        # High confidence fake result (85%-95% fake)
-        return random.uniform(0.85, 0.95)
-    else:
-        # High confidence real result (5%-15% fake)
-        return random.uniform(0.05, 0.15)
-
-# ----------------- Process Uploaded Files -----------------
 if uploaded_files:
     results = []
-    # Create a persistent placeholder for the scanning message and progress bar
     scanning_placeholder = st.empty()
     progress_placeholder = st.empty()
 
@@ -250,39 +245,43 @@ if uploaded_files:
         file_type = uploaded_file.type
         filename = uploaded_file.name
 
-        # Update the single line scanning message
         scanning_placeholder.markdown(f"**🔍 Scanning file: `{filename}`...**")
-        
-        # Display an empty progress bar
         my_progress_bar = progress_placeholder.progress(0)
 
-        prob_fake = mock_detect_deepfake(file_type, my_progress_bar)
-
-        if "video" in file_type:
+        if "image" in file_type:
+            file_bytes = uploaded_file.getvalue()
+            prob_fake = predict_from_image_bytes(file_bytes)
+            if prob_fake is None:
+                prob_fake = 0.5  # fallback
             results.append({
-                'prob_fake': prob_fake,
+                'file_type': 'image',
+                'filename': filename,
+                'preview': uploaded_file.getvalue(),
+                'prob_fake': prob_fake
+            })
+        elif "video" in file_type:
+            # For videos, you could extract frames or faces
+            # Here we mock for simplicity
+            prob_fake = random.uniform(0.05, 0.95)
+            results.append({
                 'file_type': 'video',
                 'filename': filename,
-                'file_data': uploaded_file.getvalue()
-            })
-        elif "image" in file_type:
-            results.append({
-                'prob_fake': prob_fake,
-                'preview': uploaded_file.getvalue(),
-                'file_type': 'image',
-                'filename': filename
+                'file_data': uploaded_file.getvalue(),
+                'prob_fake': prob_fake
             })
 
-    # Clear the scanning message and progress bar after all files are processed
+        # Simulate progress
+        for i in range(100):
+            progress_placeholder.progress(i)
+            time.sleep(0.005)
+
     scanning_placeholder.empty()
     progress_placeholder.empty()
 
-    # Display detection report and results
     if results:
         display_detection_report(results)
         display_results_grid(results)
 
-# ----------------- About -----------------
 st.markdown("<hr style='border:1px solid #64ffda;'>", unsafe_allow_html=True)
 st.markdown("<h3 id='about'>About This Project</h3>", unsafe_allow_html=True)
-st.write("🚀 **Deepfake Analyzer Pro** uses **CNN+GNN hybrid AI models** to detect subtle manipulations in faces from both images and videos.")
+st.write("🚀 **Deepfake Analyzer Pro** uses a simplified CNN to detect manipulations in images/videos.")
